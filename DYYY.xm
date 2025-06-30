@@ -597,12 +597,18 @@
 
 %hook AWEDanmakuContentLabel
 - (void)setTextColor:(UIColor *)textColor {
+    if (self.layer.mask && [self.layer.mask.name isEqualToString:@"TextGradientMask"]) self.layer.mask = nil;
+
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYEnableDanmuColor"]) {
         NSString *danmuColor = [[NSUserDefaults standardUserDefaults] objectForKey:@"DYYYdanmuColor"];
         if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYDanmuRainbowRotating"]) {
-            danmuColor = @"rainbow_rotating";
+            danmuColor = @"rainbow_animation";
         }
-        [DYYYUtils applyColorSettingsToLabel:self colorHexString:danmuColor];
+        if ([danmuColor isEqualToString:@"rainbow_animation"] || [danmuColor isEqualToString:@"#rainbow_animation"]) {
+            [DYYYUtils applyCAGradientLayerToLabel:self colorHexString:danmuColor];
+        } else {
+            [DYYYUtils applyColorSettingsToLabel:self colorHexString:danmuColor];
+        }
     } else {
         %orig(textColor);
     }
