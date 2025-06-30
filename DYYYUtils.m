@@ -165,15 +165,16 @@
 }
 
 #pragma mark - Public Color Scheme Methods (公共颜色方案方法)
-    static NSArray<UIColor *> *_baseRainbowColors;
-    static NSCache *_gradientColorCache;
-    static atomic_uint_fast64_t _rainbowRotationCounter = 0;
+static NSCache *_gradientColorCache;
+static NSArray<UIColor *> *_baseRainbowColors;
+static atomic_uint_fast64_t _rainbowRotationCounter = 0;
+static CABasicAnimation *_sharedRainbowScrollAnimation = nil;
+static CGFloat _rainbowAnimationSpeed = 1.0;
 
 // +initialize 方法在类第一次被使用时调用，且只调用一次，是线程安全的
 + (void)initialize {
     if (self == [DYYYUtils class]) {
         _gradientColorCache = [[NSCache alloc] init];
-        _gradientColorCache.name = @"DYYYGradientColorCache";
         // 可以自定义缓存限制，例如：
         // _gradientColorCache.countLimit = 100; // 最大缓存对象数量
         // _gradientColorCache.totalCostLimit = 10 * 1024 * 1024; // 最大缓存成本（例如10MB）
@@ -189,10 +190,43 @@
         ];
 
         atomic_init(&_rainbowRotationCounter, 0);
+
+        _sharedRainbowScrollAnimation = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
+        _sharedRainbowScrollAnimation.fromValue = @0;
+        _sharedRainbowScrollAnimation.repeatCount = HUGE_VALF;
+        _sharedRainbowScrollAnimation.duration = 4.0 / _rainbowAnimationSpeed;
+        _sharedRainbowScrollAnimation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+        _sharedRainbowScrollAnimation.fillMode = kCAFillModeForwards;
+        _sharedRainbowScrollAnimation.removedOnCompletion = NO;
     }
 }
 
-+ (void)applyColorSettingsToLabel:(UILabel *)label colorHexString:(NSString *)colorHexString {
++ (void)applyCAGradientLayerToLabel:(UILabel *)label colorHexString:(NSString *)hexString {
+    for (CALayer *sublayer in [label.layer.sublayers copy]) {
+        if ([sublayer.name isEqualToString:@"rainbowScrollAnimation"]) {
+            [sublayer removeFromSuperlayer];
+        }
+    }
+
+    CALayer *animationLayer = [self layerFromSchemeHexString:hexString frame:label.bounds];
+
+    if (animationLayer) {
+        animationLayer.name = @"rainbowScrollAnimation";
+        animationLayer.frame = label.bounds;
+
+        if (label.layer.sublayers.count > 0 && [label.layer.sublayers[0] isKindOfClass:[CATextLayer class]]) {
+            [label.layer insertSublayer:animationLayer atIndex:0];
+        } else {
+            [label.layer addSublayer:animationLayer];
+        }
+
+        label.textColor = [UIColor clearColor];
+    } else {
+        [self applyColorSettingsToLabel:label colorHexString:hexString];
+    }
+}
+
++ (void)applyColorSettingsToLabel:(UILabel *)label colorHexString:(NSString *)hexString {
     NSMutableAttributedString *attributedText;
     if ([label.attributedText isKindOfClass:[NSAttributedString class]]) {
         attributedText = [[NSMutableAttributedString alloc] initWithAttributedString:label.attributedText];
@@ -211,7 +245,7 @@
     [attributedText removeAttribute:NSStrokeWidthAttributeName range:fullRange];
     [attributedText removeAttribute:NSShadowAttributeName range:fullRange];
 
-    if (!colorHexString || colorHexString.length == 0) {
+    if (!hexString || hexString.length == 0) {
         [attributedText addAttribute:NSForegroundColorAttributeName value:[UIColor whiteColor] range:fullRange];
         label.attributedText = attributedText;
         return;
@@ -229,7 +263,7 @@
                                                    context:nil];
     CGFloat actualTextWidth = MAX(1.0, ceil(textRect.size.width));
 
-    UIColor *finalTextColor = [self colorFromSchemeHexString:colorHexString targetWidth:actualTextWidth];
+    UIColor *finalTextColor = [self colorFromSchemeHexString:hexString targetWidth:actualTextWidth];
 
     if (finalTextColor) {
         [attributedText addAttribute:NSForegroundColorAttributeName value:finalTextColor range:fullRange];
@@ -271,6 +305,15 @@
         [mutableAttributedText addAttribute:NSShadowAttributeName value:shadow range:fullRange];
     }
     label.attributedText = mutableAttributedText;
+}
+
++ (void)setRainbowAnimationSpeed:(CGFloat)speed {
+    if (speed <= 0) {
+        _rainbowAnimationSpeed = 1.0;
+    } else {
+        _rainbowAnimationSpeed = speed;
+    }
+    _sharedRainbowScrollAnimation.duration = 4.0 / _rainbowAnimationSpeed;
 }
 
 + (UIColor *)colorFromSchemeHexString:(NSString *)hexString targetWidth:(CGFloat)targetWidth {
@@ -368,14 +411,17 @@
         layer.backgroundColor = [self _randomColor].CGColor;
         return layer;
     }
+    if ([lowercaseHexString isEqualToString:@"rainbow_animation"] || [lowercaseHexString isEqualToString:@"#rainbow_animation"]) {
+        return [self _rainbowAnimationLayerForFrame:frame];
+    }
     if ([lowercaseHexString isEqualToString:@"rainbow_rotating"] || [lowercaseHexString isEqualToString:@"#rainbow_rotating"]) {
         CAGradientLayer *gradientLayer = [CAGradientLayer layer];
         gradientLayer.frame = frame;
-        
+
         NSUInteger count = _baseRainbowColors.count;
         if (count == 0) return nil;
-        uint_fast64_t currentRotationIndex = atomic_fetch_add(&_rainbowRotationCounter, 1) % count; // 同样原子递增
-        NSArray<UIColor *> *rotatedColors = [self _rotatedRainbowColorsForIndex:currentRotationIndex]; // 使用指定索引获取颜色数组
+        uint_fast64_t currentRotationIndex = atomic_fetch_add(&_rainbowRotationCounter, 1) % count;
+        NSArray<UIColor *> *rotatedColors = [self _rotatedRainbowColorsForIndex:currentRotationIndex];
 
         NSMutableArray *cgColors = [NSMutableArray arrayWithCapacity:rotatedColors.count];
         for (UIColor *color in rotatedColors) {
@@ -389,7 +435,7 @@
     if ([lowercaseHexString isEqualToString:@"random_gradient"] || [lowercaseHexString isEqualToString:@"#random_gradient"]) {
         CAGradientLayer *gradientLayer = [CAGradientLayer layer];
         gradientLayer.frame = frame;
-        
+
         NSMutableArray *cgColors = [NSMutableArray arrayWithCapacity:3];
         for (int i = 0; i < 3; i++) {
             [cgColors addObject:(__bridge id)[self _randomColor].CGColor];
@@ -405,7 +451,7 @@
     if (gradientColors && gradientColors.count > 0) {
         CAGradientLayer *gradientLayer = [CAGradientLayer layer];
         gradientLayer.frame = frame;
-        
+
         NSMutableArray *cgColors = [NSMutableArray arrayWithCapacity:gradientColors.count];
         for (UIColor *color in gradientColors) {
             [cgColors addObject:(__bridge id)color.CGColor];
@@ -437,37 +483,35 @@
  * @return 解析出的 UIColor 对象。如果格式无效，返回 nil。
  */
 + (UIColor *)_colorFromHexString:(NSString *)hexString {
-    NSString *colorString =
-        [[hexString stringByReplacingOccurrencesOfString:@"#"
-                                              withString:@""] uppercaseString];
+    NSString *colorString = [[hexString stringByReplacingOccurrencesOfString:@"#" withString:@""] uppercaseString];
+
     CGFloat alpha = 1.0;
     unsigned int hexValue = 0;
     NSScanner *scanner = [NSScanner scannerWithString:colorString];
 
     BOOL scanSuccess = NO;
     if (colorString.length == 8) { // AARRGGBB
-      if ([scanner scanHexInt:&hexValue]) {
-           alpha = ((hexValue & 0xFF000000) >> 24) / 255.0;
-           scanSuccess = YES;
-      }
+        if ([scanner scanHexInt:&hexValue]) {
+            alpha = ((hexValue & 0xFF000000) >> 24) / 255.0;
+            scanSuccess = YES;
+        }
     } else if (colorString.length == 6) { // RRGGBB
-      if ([scanner scanHexInt:&hexValue]) {
-          scanSuccess = YES;
-      }
+        if ([scanner scanHexInt:&hexValue]) {
+            scanSuccess = YES;
+        }
     } else if (colorString.length == 3) { // RGB (简写)
         NSString *r = [colorString substringWithRange:NSMakeRange(0, 1)];
         NSString *g = [colorString substringWithRange:NSMakeRange(1, 1)];
         NSString *b = [colorString substringWithRange:NSMakeRange(2, 1)];
-        NSString *expandedColorString =
-            [NSString stringWithFormat:@"%@%@%@%@%@%@", r, r, g, g, b, b];
+        NSString *expandedColorString = [NSString stringWithFormat:@"%@%@%@%@%@%@", r, r, g, g, b, b];
         NSScanner *expandedScanner = [NSScanner scannerWithString:expandedColorString];
         if ([expandedScanner scanHexInt:&hexValue]) {
-          scanSuccess = YES;
+            scanSuccess = YES;
         }
     }
-    if (!scanSuccess) {
-        return nil; // 返回 nil 表示解析失败
-    }
+    
+    if (!scanSuccess) return nil;
+    
     CGFloat red = ((hexValue & 0x00FF0000) >> 16) / 255.0;
     CGFloat green = ((hexValue & 0x0000FF00) >> 8) / 255.0;
     CGFloat blue = (hexValue & 0x000000FF) / 255.0;
@@ -555,6 +599,39 @@
     }];
 
     return image;
+}
+
++ (CAGradientLayer *)_rainbowAnimationLayerForFrame:(CGRect)frame {
+    CAGradientLayer *gradientLayer = [CAGradientLayer layer];
+    gradientLayer.frame = CGRectMake(0, 0, frame.size.width * 2, frame.size.height);
+    gradientLayer.startPoint = CGPointMake(0, 0.5);
+    gradientLayer.endPoint = CGPointMake(1, 0.5);
+
+    NSMutableArray *cgColors = [NSMutableArray new];
+    for (int i = 0; i < 2; i++) {
+        for (UIColor *color in _baseRainbowColors) {
+            [cgColors addObject:(__bridge id)color.CGColor];
+        }
+    }
+    gradientLayer.colors = cgColors;
+
+    gradientLayer.opaque = YES;
+    gradientLayer.drawsAsynchronously = YES;
+    gradientLayer.allowsEdgeAntialiasing = NO;
+
+    CABasicAnimation *animation = [_sharedRainbowScrollAnimation copy];
+    animation.toValue = @(-frame.size.width);
+
+    [gradientLayer addAnimation:animation forKey:@"rainbowScrollAnimation"];
+
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    maskLayer.path = [UIBezierPath bezierPathWithRect:CGRectMake(0, 0, frame.size.width, frame.size.height)].CGPath;
+    maskLayer.frame = gradientLayer.bounds; 
+    
+    gradientLayer.mask = maskLayer;
+    maskLayer.name = @"RainbowMaskLayer"; 
+
+    return gradientLayer;
 }
 
 @end

@@ -84,9 +84,17 @@ NS_ASSUME_NONNULL_BEGIN
  *        - "HEX1,HEX2,..." 或 "#HEX1,#HEX2,...": 返回一个多色渐变方案，支持任意数量的十六进制颜色。
  *        - "HEX" 或 "#HEX": 返回一个单色方案。
  */
-+ (void)applyColorSettingsToLabel:(UILabel *)label colorHexString:(NSString *)colorHexString;
++ (void)applyCAGradientLayerToLabel:(UILabel *)label colorHexString:(NSString *)hexString;
++ (void)applyColorSettingsToLabel:(UILabel *)label colorHexString:(NSString *)hexString;
 + (void)applyStrokeToLabel:(UILabel *)label strokeColor:(UIColor *)strokeColor strokeWidth:(CGFloat)strokeWidth;
 + (void)applyShadowToLabel:(UILabel *)label shadow:(NSShadow *)shadow;
+
+/**
+ * @brief 设置彩虹滚动动画的速度。
+ * @param speed 动画速度因子。1.0 为默认速度，大于1.0加速，小于1.0减速。
+ *              此设置将影响之后创建的彩虹动画层。
+ */
++ (void)setRainbowAnimationSpeed:(CGFloat)speed;
 
 /**
  * @brief 根据十六进制字符串返回一个适合用于图案填充的 UIColor。
