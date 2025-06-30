@@ -602,7 +602,7 @@
         if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYDanmuRainbowRotating"]) {
             danmuColor = @"rainbow_rotating";
         }
-        [DYYYUtils applyAnimationLayerToLabel:self colorHexString:danmuColor];
+        [DYYYUtils applyColorSettingsToLabel:self colorHexString:danmuColor];
     } else {
         %orig(textColor);
     }
